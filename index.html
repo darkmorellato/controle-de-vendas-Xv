@@ -1357,8 +1357,13 @@
                                                 return isManager ? true : s.employeeName === settings.employeeName;
                                             });
                                             const unitsSold = relevantSales.reduce((acc, s) => {
-                                                const eligibleItems = (s.items || []).filter(i => ELIGIBLE_FOR_GOAL.includes(i.type) && i.unitPrice > 0);
-                                                return acc + eligibleItems.reduce((sum, i) => sum + i.quantity, 0);
+                                                // Itens positivos (vendidos)
+                                                const soldItems = (s.items || []).filter(i => ELIGIBLE_FOR_GOAL.includes(i.type) && i.unitPrice > 0);
+                                                const sold = soldItems.reduce((sum, i) => sum + i.quantity, 0);
+                                                // Itens negativos (devolvidos) - subtrai da meta
+                                                const returnedItems = (s.items || []).filter(i => ELIGIBLE_FOR_GOAL.includes(i.type) && i.unitPrice < 0);
+                                                const returned = returnedItems.reduce((sum, i) => sum + i.quantity, 0);
+                                                return acc + sold - returned;
                                             }, 0);
                                             const progress = Math.min((unitsSold / myTarget) * 100, 100);
                                             const isGoalReached = unitsSold >= myTarget;
@@ -1382,13 +1387,18 @@
                                             const currentYear = new Date().getFullYear();
                                             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
 
+                                            // Vendas hoje: soma amountPaid (já inclui negativos de devoluções)
                                             const salesToday = mySales.filter(s => s.date === today).reduce((acc, s) => acc + (s.amountPaid || s.amount), 0);
                                             const salesMonth = mySales.filter(s => { const d = new Date(s.date + 'T00:00:00'); return d.getMonth() === currentMonth && d.getFullYear() === currentYear; });
+                                            // Total mês: devoluções/trocas negativas já subtraem automaticamente pois amountPaid é negativo
                                             const totalMonth = salesMonth.reduce((acc, s) => acc + (s.amountPaid || s.amount), 0);
 
                                             // Novos KPIS Calculados
-                                            const countSalesMonth = salesMonth.length;
-                                            const totalDiscountMonth = salesMonth.reduce((acc, s) => acc + (s.discount || 0), 0);
+                                            // Qtd vendas: conta positivas e subtrai devoluções
+                                            const salesPositive = salesMonth.filter(s => (s.amountPaid || s.amount) > 0).length;
+                                            const salesNegative = salesMonth.filter(s => (s.amountPaid || s.amount) < 0).length;
+                                            const countSalesMonth = salesPositive - salesNegative;
+                                            const totalDiscountMonth = salesMonth.filter(s => (s.amountPaid || s.amount) > 0).reduce((acc, s) => acc + (s.discount || 0), 0);
                                             const myClients = clients.filter(c => {
                                                 if (!c.createdAt || c.createdBy !== settings.employeeName) return false;
                                                 const d = new Date(c.createdAt);
@@ -1425,10 +1435,11 @@
 
                                                 for (let i = 1; i <= days; i++) {
                                                     const dayStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+                                                    // Devoluções (negativas) já subtraem automaticamente na soma
                                                     const val = mySales.filter(s => s.date === dayStr).reduce((acc, s) => acc + (s.amountPaid || s.amount), 0);
                                                     monthData.push({ day: i, val });
                                                 }
-                                                const maxVal = Math.max(...monthData.map(d => d.val), 100);
+                                                const maxVal = Math.max(...monthData.map(d => Math.abs(d.val)), 100);
 
                                                 return monthData.map(d => (
                                                     <div key={d.day} className="flex flex-col items-center flex-1 group/bar relative h-full justify-end min-w-[24px]">
@@ -1471,7 +1482,8 @@
                                                     const currentMonth = new Date().getMonth();
                                                     const currentYear = new Date().getFullYear();
                                                     const productCount = {};
-                                                    mySales.forEach(s => { const d = new Date(s.date + 'T00:00:00'); if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) { (s.items || []).forEach(i => { const key = i.description; productCount[key] = (productCount[key] || 0) + i.quantity; }); } });
+                                                    mySales.forEach(s => { const d = new Date(s.date + 'T00:00:00'); if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) { (s.items || []).forEach(i => { const key = i.description; // unitPrice < 0 = devolução, subtrai; > 0 = venda, soma
+                                                    const delta = i.unitPrice < 0 ? -i.quantity : i.quantity; productCount[key] = (productCount[key] || 0) + delta; }); } });
                                                     const sortedProducts = Object.entries(productCount).sort(([, a], [, b]) => b - a).slice(0, 5);
                                                     if (sortedProducts.length === 0) return <p className="text-sm text-slate-400 italic text-center py-10">Nenhuma venda registrada neste mês.</p>;
                                                     return sortedProducts.map(([name, qty], idx) => (<div key={name} className="flex justify-between items-center text-sm p-5 hover:bg-white rounded-[1.5rem] transition-colors group border border-transparent hover:border-slate-50 shadow-sm hover:shadow-md"><div className="flex items-center gap-4 overflow-hidden"><span className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-xl text-xs font-black shadow-sm ${idx === 0 ? 'bg-amber-100 text-amber-600' : idx === 1 ? 'bg-slate-200 text-slate-600' : idx === 2 ? 'bg-orange-100 text-orange-600' : 'bg-white text-slate-400 border border-slate-100'}`}>{idx + 1}</span><span className="truncate font-medium text-slate-600 group-hover:text-slate-900 transition-colors">{name}</span></div><span className="font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg text-xs shadow-sm border border-emerald-100">{qty} un</span></div>));
